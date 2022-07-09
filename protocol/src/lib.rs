@@ -3,71 +3,62 @@ Helper crate that declares common types and structures shared between [wasm-peer
 and [wasm-peers-signaling-server](https://docs.rs/wasm-peers-signaling-server/latest/wasm_peers_signaling_server/).
 */
 
-#![deny(missing_docs)]
-
 use serde::{Deserialize, Serialize};
-use std::fmt::{Display, Formatter};
-use std::ops::Deref;
-use std::str::FromStr;
+use std::{
+    fmt::{Display, Formatter},
+    str::FromStr,
+};
 
-pub mod many_to_many;
-pub mod one_to_many;
 pub mod one_to_one;
 
 /// Unique identifier of signaling session that each user provides
 /// when communicating with the signaling server.
-#[derive(Debug, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
-pub struct SessionId(String);
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
+pub struct SessionId(u128);
 
 impl SessionId {
     /// Wrap String into a SessionId struct
-    pub fn new(inner: String) -> Self {
+    pub fn new(inner: u128) -> Self {
         SessionId(inner)
     }
 
-    /// Return reference to the underling string
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
     /// Acquire the underlying type
-    pub fn into_inner(self) -> String {
+    pub fn get(self) -> u128 {
         self.0
-    }
-}
-
-impl FromStr for SessionId {
-    type Err = Box<dyn std::error::Error>;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(SessionId(s.to_string()))
     }
 }
 
 impl Display for SessionId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "Seid-{}", self.0)
+    }
+}
+impl FromStr for SessionId {
+    type Err = <u128 as FromStr>::Err;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Ok(SessionId(s.parse()?))
     }
 }
 
 /// Unique identifier of each peer connected to signaling server
 /// useful when communicating in one-to-many and many-to-many topologies.
 #[derive(Debug, Copy, Clone, Eq, PartialEq, Serialize, Deserialize, Hash)]
-pub struct UserId(usize);
+pub struct UserId(pub u64);
 
 impl UserId {
     /// Wrap usize into a UserId struct
-    pub fn new(inner: usize) -> Self {
+    pub fn new(inner: u64) -> Self {
         UserId(inner)
     }
 
     /// Acquire the underlying type
-    pub fn into_inner(self) -> usize {
+    pub fn into_inner(self) -> u64 {
         self.0
     }
 }
 
-impl From<usize> for UserId {
-    fn from(val: usize) -> Self {
+impl From<u64> for UserId {
+    fn from(val: u64) -> Self {
         UserId(val)
     }
 }
@@ -77,15 +68,3 @@ impl Display for UserId {
         write!(f, "{}", self.0)
     }
 }
-
-impl Deref for UserId {
-    type Target = usize;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
-    }
-}
-
-/// Unique identifier specifying which peer is host and will be creating an offer,
-/// and which will await it.
-pub type IsHost = bool;

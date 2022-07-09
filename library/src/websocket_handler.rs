@@ -1,4 +1,4 @@
-use crate::utils::{create_sdp_answer, create_sdp_offer, IceCandidate};
+use crate::utils::{create_sdp_answer, create_sdp_offer};
 use ::log::{debug, error, info};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
@@ -19,16 +19,14 @@ pub(crate) async fn handle_websocket_message(
         SignalMessage::SessionJoin(_session_id) => {
             error!("error, SessionStartOrJoin should only be sent by peers to signaling server");
         }
-        SignalMessage::SessionReady(session_id, is_host) => {
+        SignalMessage::SessionReady(session_id) => {
             info!("peer received info that session is ready {:?}", session_id);
-            if is_host {
-                let offer = create_sdp_offer(&peer_connection).await?;
-                let signal_message = SignalMessage::SdpOffer(session_id.clone(), offer);
-                let signal_message = serde_json_wasm::to_string(&signal_message)
-                    .expect("failed to serialize SignalMessage");
-                websocket.send_with_str(&signal_message)?;
-                debug!("(is_host: {}) sent an offer successfully", is_host);
-            }
+            let offer = create_sdp_offer(&peer_connection).await?;
+            let signal_message = SignalMessage::SdpOffer(session_id, offer);
+            let signal_message =
+                rmp_serde::to_vec(&signal_message).expect("failed to serialize SignalMessage");
+            websocket.send_with_u8_array(&signal_message)?;
+            debug!("sent an offer successfully");
         }
         SignalMessage::SdpOffer(session_id, offer) => {
             let answer = create_sdp_answer(&peer_connection, offer)
@@ -36,10 +34,10 @@ pub(crate) async fn handle_websocket_message(
                 .expect("failed to create SDP answer");
             debug!("received an offer and created an answer: {}", answer);
             let signal_message = SignalMessage::SdpAnswer(session_id, answer);
-            let signal_message = serde_json_wasm::to_string(&signal_message)
-                .expect("failed to serialize SignalMessage");
+            let signal_message =
+                rmp_serde::to_vec(&signal_message).expect("failed to serialize SignalMessage");
             websocket
-                .send_with_str(&signal_message)
+                .send_with_u8_array(&signal_message)
                 .expect("failed to send SPD answer to signaling server");
         }
         SignalMessage::SdpAnswer(session_id, answer) => {
@@ -54,10 +52,7 @@ pub(crate) async fn handle_websocket_message(
             );
         }
         SignalMessage::IceCandidate(_session_id, ice_candidate) => {
-            debug!("peer received ice candidate: {}", &ice_candidate);
-            let ice_candidate = serde_json_wasm::from_str::<IceCandidate>(&ice_candidate)
-                .expect("failed to deserialize IceCandidate");
-
+            debug!("peer received ice candidate: {ice_candidate:?}");
             let mut rtc_candidate = RtcIceCandidateInit::new("");
             rtc_candidate.candidate(&ice_candidate.candidate);
             rtc_candidate.sdp_m_line_index(ice_candidate.sdp_m_line_index);
@@ -101,7 +96,7 @@ pub(crate) async fn handle_websocket_message(
 //     #[wasm_bindgen_test]
 //     async fn test_handle_session_ready_signal_is_successful() {
 //         let message =
-//             SignalMessage::SessionReady(SessionId::new("dummy-session-id".to_string()), true);
+//             SignalMessage::SessionReady(SessionId::new("dummy-session-rmp_serde::to_vec()), true);
 //         let peer_connection = RtcPeerConnection::new().unwrap();
 //
 //         // TODO(tkarwowski): this should be mocked, but how do you pass a mock to a function expecting different type?

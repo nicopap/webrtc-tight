@@ -1,6 +1,6 @@
 use std::collections::hash_map::Entry;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use futures_util::{SinkExt, StreamExt, TryFutureExt};
@@ -21,7 +21,7 @@ pub struct Session {
 pub type Connections = Arc<RwLock<HashMap<UserId, mpsc::UnboundedSender<Message>>>>;
 pub type Sessions = Arc<RwLock<HashMap<SessionId, Session>>>;
 
-static NEXT_USER_ID: AtomicUsize = AtomicUsize::new(1);
+static NEXT_USER_ID: AtomicU64 = AtomicU64::new(1);
 
 pub async fn user_connected(ws: WebSocket, connections: Connections, sessions: Sessions) {
     let user_id = UserId::new(NEXT_USER_ID.fetch_add(1, Ordering::Relaxed));
@@ -65,143 +65,82 @@ async fn user_message(
     connections: &Connections,
     sessions: &Sessions,
 ) {
-    if let Ok(msg) = msg.to_str() {
-        match serde_json::from_str::<SignalMessage>(msg) {
-            Ok(request) => {
-                info!("message received from user {:?}: {:?}", user_id, request);
-                match request {
-                    SignalMessage::SessionJoin(session_id) => {
-                        match sessions.write().await.entry(session_id.clone()) {
-                            // on first user in session - create session object and store connecting user id
-                            Entry::Vacant(entry) => {
-                                entry.insert(Session {
-                                    first: Some(user_id),
-                                    second: None,
-                                    offer_received: false,
-                                });
-                            }
-                            // on second user - add him to existing session and notify users that session is ready
-                            Entry::Occupied(mut entry) => {
-                                entry.get_mut().second = Some(user_id);
-                                let first_response =
-                                    SignalMessage::SessionReady(session_id.clone(), true);
-                                let first_response =
-                                    serde_json::to_string(&first_response).unwrap();
-                                let second_response =
-                                    SignalMessage::SessionReady(session_id, false);
-                                let second_response =
-                                    serde_json::to_string(&second_response).unwrap();
+    use SignalMessage::{IceCandidate, SdpAnswer, SdpOffer};
+    let request = match rmp_serde::from_slice::<SignalMessage>(msg.as_bytes()) {
+        Ok(request) => {
+            info!("message received from user {:?}: {:?}", user_id, request);
+            request
+        }
+        Err(error) => {
+            error!("An error occurred: {:?}", error);
+            return;
+        }
+    };
+    match &request {
+        SignalMessage::SessionJoin(session_id) => {
+            match sessions.write().await.entry(*session_id) {
+                // on first user in session - create session object and store connecting user id
+                Entry::Vacant(entry) => {
+                    entry.insert(Session {
+                        first: Some(user_id),
+                        second: None,
+                        offer_received: false,
+                    });
+                }
+                // on second user - add him to existing session and notify users that session is ready
+                Entry::Occupied(mut entry) => {
+                    entry.get_mut().second = Some(user_id);
+                    let first_response = SignalMessage::SessionReady(*session_id);
+                    let second_response = SignalMessage::SessionReady(*session_id);
+                    let first_response = rmp_serde::to_vec(&first_response).unwrap();
+                    let second_response = rmp_serde::to_vec(&second_response).unwrap();
 
-                                let connections_reader = connections.read().await;
-                                if let Some(first_id) = &entry.get().first {
-                                    let first_tx = connections_reader.get(first_id).unwrap();
-                                    first_tx.send(Message::text(first_response)).unwrap();
-                                    let second_tx = connections_reader.get(&user_id).unwrap();
-                                    second_tx.send(Message::text(&second_response)).unwrap();
-                                }
-                            }
-                        }
+                    let connections_reader = connections.read().await;
+                    if let Some(first_id) = &entry.get().first {
+                        let first_tx = connections_reader.get(first_id).unwrap();
+                        first_tx.send(Message::binary(first_response)).unwrap();
+                        let second_tx = connections_reader.get(&user_id).unwrap();
+                        second_tx.send(Message::binary(second_response)).unwrap();
                     }
-                    // pass offer to the other user in session without changing anything
-                    SignalMessage::SdpOffer(session_id, offer) => {
-                        match sessions.write().await.get_mut(&session_id) {
-                            Some(session) => {
-                                if session.offer_received {
-                                    warn!("offer already sent by the the peer, ignoring the second offer: {:?}", session_id);
-                                } else {
-                                    session.offer_received = true;
-                                }
-
-                                let recipient = if Some(user_id) == session.first {
-                                    session.second
-                                } else {
-                                    session.first
-                                };
-                                match recipient {
-                                    Some(recipient_id) => {
-                                        let response = SignalMessage::SdpOffer(session_id, offer);
-                                        let response = serde_json::to_string(&response).unwrap();
-                                        let connections_reader = connections.read().await;
-                                        let recipient_tx =
-                                            connections_reader.get(&recipient_id).unwrap();
-
-                                        recipient_tx.send(Message::text(response)).unwrap();
-                                    }
-                                    None => {
-                                        error!("Missing second user in session: {:?}", &session_id);
-                                    }
-                                }
-                            }
-                            None => {
-                                error!("No such session: {:?}", &session_id);
-                            }
-                        }
-                    }
-                    // pass answer to the other user in session without changing anything
-                    SignalMessage::SdpAnswer(session_id, answer) => {
-                        match sessions.read().await.get(&session_id) {
-                            Some(session) => {
-                                let recipient = if Some(user_id) == session.first {
-                                    session.second
-                                } else {
-                                    session.first
-                                };
-                                match recipient {
-                                    Some(recipient_id) => {
-                                        let response = SignalMessage::SdpAnswer(session_id, answer);
-                                        let response = serde_json::to_string(&response).unwrap();
-                                        let connections_reader = connections.read().await;
-                                        let recipient_tx =
-                                            connections_reader.get(&recipient_id).unwrap();
-
-                                        recipient_tx.send(Message::text(response)).unwrap();
-                                    }
-                                    None => {
-                                        error!("Missing second user in session: {:?}", &session_id);
-                                    }
-                                }
-                            }
-                            None => {
-                                error!("No such session: {:?}", &session_id);
-                            }
-                        }
-                    }
-                    SignalMessage::IceCandidate(session_id, candidate) => {
-                        match sessions.read().await.get(&session_id) {
-                            Some(session) => {
-                                let recipient = if Some(user_id) == session.first {
-                                    session.second
-                                } else {
-                                    session.first
-                                };
-                                match recipient {
-                                    Some(recipient_id) => {
-                                        let response =
-                                            SignalMessage::IceCandidate(session_id, candidate);
-                                        let response = serde_json::to_string(&response).unwrap();
-                                        let connections_reader = connections.read().await;
-                                        let recipient_tx =
-                                            connections_reader.get(&recipient_id).unwrap();
-
-                                        recipient_tx.send(Message::text(response)).unwrap();
-                                    }
-                                    None => {
-                                        error!("Missing second user in session: {:?}", &session_id);
-                                    }
-                                }
-                            }
-                            None => {
-                                error!("No such session: {:?}", &session_id);
-                            }
-                        }
-                    }
-                    _ => {}
                 }
             }
-            Err(error) => {
-                error!("An error occurred: {:?}", error);
+        }
+        // pass offer and answer to the other user in session without changing anything
+        message @ (SdpOffer(id, _) | SdpAnswer(id, _) | IceCandidate(id, _)) => {
+            let mut lock = sessions.write().await;
+            let session = match lock.get_mut(id) {
+                Some(session) => session,
+                None => {
+                    error!("No such session: {id:?}");
+                    return;
+                }
+            };
+            if session.offer_received {
+                warn!("offer already sent by the the peer, ignoring the 2nd offer: {id:?}");
+            } else {
+                session.offer_received = true;
+            }
+
+            let recipient = if session.first.is_some() {
+                session.second
+            } else {
+                session.first
+            };
+            match recipient {
+                Some(recipient_id) => {
+                    let response = message;
+                    let response = rmp_serde::to_vec(&response).unwrap();
+                    let connections_reader = connections.read().await;
+                    let recipient_tx = connections_reader.get(&recipient_id).unwrap();
+
+                    recipient_tx.send(Message::binary(response)).unwrap();
+                }
+                None => {
+                    error!("Missing second user in session: {:?}", &id);
+                }
             }
         }
+        SignalMessage::SessionReady(_) | SignalMessage::Error(..) => {}
     }
 }
 
@@ -214,7 +153,7 @@ async fn user_disconnected(user_id: UserId, connections: &Connections, sessions:
             session.second = None;
         }
         if session.first == None && session.second == None {
-            session_to_delete = Some(session_id.clone());
+            session_to_delete = Some(*session_id);
         }
     }
     // remove session if it's empty

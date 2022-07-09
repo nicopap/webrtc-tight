@@ -1,0 +1,39 @@
+[package]
+name = "footballers"
+version = "0.1.0"
+authors = ["Arkadiusz Górecki <arkadiusz.gorecki52@gmail.com>", "Tomasz Karwowski <to.karwowski@gmail.com>"]
+edition = "2021"
+license = "MIT OR APACHE-2.0"
+description = "2D real-time multiplayer game in a browser."
+homepage = "http://wasm-peers-footballers.s3-website.eu-central-1.amazonaws.com/"
+repository = "https://github.com/wasm-peers/footballers"
+keywords = ["wasm", "webrtc", "peer-to-peer", "webassembly", "football"]
+
+[features]
+default = ["console_error_panic_hook"]
+
+[dependencies]
+wasm-peers = { path = "../library" }
+wasm-bindgen = { version = "0.2.74", features = ["serde-serialize"] }
+rapier2d = { version = "0.11.1", features = ["simd-stable", "wasm-bindgen"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0.72"
+num = "0.4.0"
+web-sys = { version = "0.3.4", features = [
+  "Document", "Element", "HtmlCanvasElement", "Navigator", "Clipboard",
+  "HtmlElement", "Node", "Window", "CanvasRenderingContext2d",
+] }
+log = "0.4.14"
+wasm-logger = "0.2.0"
+yew = "0.19.3"
+yew-router = "0.16.0"
+
+# The `console_error_panic_hook` crate provides better debugging of panics by
+# logging them with `console.error`. This is great for development, but requires
+# all the `std::fmt` and `std::panicking` infrastructure, so isn't great for
+# code size when deploying.
+console_error_panic_hook = { version = "0.1.6", optional = true }
+
+[profile.release]
+# Tell `rustc` to optimize for small code size.
+opt-level = "s"

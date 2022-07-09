@@ -18,19 +18,16 @@ and [many-to-many] that creates connection for each pair of peers and allows sen
 
 */
 
+mod callbacks;
 #[deny(missing_docs)]
-#[cfg(feature = "many-to-many")]
-pub mod many_to_many;
-#[cfg(feature = "one-to-many")]
-pub mod one_to_many;
-#[cfg(feature = "one-to-one")]
 pub mod one_to_one;
 mod utils;
+mod websocket_handler;
 
 pub use utils::ConnectionType;
 pub use wasm_peers_protocol::{SessionId, UserId};
 
 /// Returns a new SessionId instance that can be used to identify a session by signaling server.
 pub fn get_random_session_id() -> SessionId {
-    SessionId::new(uuid::Uuid::new_v4().to_string())
+    SessionId::new(uuid::Uuid::new_v4().to_u128_le())
 }

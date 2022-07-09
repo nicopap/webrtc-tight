@@ -16,7 +16,7 @@ use web_sys::console;
 const SIGNALING_SERVER_URL: &str = "ws://0.0.0.0:9001/one-to-one";
 const STUN_SERVER_URL: &str = "stun:openrelay.metered.ca:80";
 
-let session_id = SessionId::new("some-session-id".to_string());
+let session_id = SessionId::new(12348);
 let mut server = NetworkManager::new(
     SIGNALING_SERVER_URL,
     session_id.clone(),
@@ -51,24 +51,23 @@ client.start(client_on_open, client_on_message).unwrap();
 ```
 */
 
-use crate::one_to_one::callbacks::{
+use crate::callbacks::{
     set_data_channel_on_error, set_data_channel_on_message, set_data_channel_on_open,
     set_peer_connection_on_data_channel, set_peer_connection_on_ice_candidate,
     set_peer_connection_on_ice_connection_state_change,
     set_peer_connection_on_ice_gathering_state_change, set_peer_connection_on_negotiation_needed,
     set_websocket_on_message, set_websocket_on_open,
 };
-use crate::utils::{create_peer_connection, ConnectionType};
+use crate::utils::ConnectionType;
 use log::debug;
-use std::cell::RefCell;
+use serde::de::DeserializeOwned;
+use serde::Serialize;
+use std::cell::{Ref, RefCell};
 use std::rc::Rc;
 use wasm_bindgen::JsValue;
 use wasm_peers_protocol::SessionId;
 use web_sys::RtcPeerConnection;
-use web_sys::{RtcDataChannel, WebSocket};
-
-mod callbacks;
-mod websocket_handler;
+use web_sys::{RtcDataChannel, RtcDataChannelInit, WebSocket};
 
 #[derive(Debug, Clone)]
 pub(crate) struct NetworkManagerInner {
@@ -107,7 +106,7 @@ impl NetworkManager {
         session_id: SessionId,
         connection_type: ConnectionType,
     ) -> Result<Self, JsValue> {
-        let peer_connection = create_peer_connection(&connection_type)?;
+        let peer_connection = connection_type.create_peer_connection()?;
 
         let websocket = WebSocket::new(signaling_server_url)?;
         websocket.set_binary_type(web_sys::BinaryType::Arraybuffer);
@@ -125,10 +124,11 @@ impl NetworkManager {
     /// Second part of the setup that begins the actual connection.
     /// Requires specifying a callbacks that are guaranteed to run
     /// when the connection opens and on each message received.
-    pub fn start(
+    pub fn start<T: DeserializeOwned>(
         &mut self,
+        max_retransmits: u16,
         on_open_callback: impl FnMut() + Clone + 'static,
-        on_message_callback: impl FnMut(String) + Clone + 'static,
+        on_message_callback: impl FnMut(T) + Clone + 'static,
     ) -> Result<(), JsValue> {
         let NetworkManagerInner {
             websocket,
@@ -137,7 +137,12 @@ impl NetworkManager {
             ..
         } = self.inner.borrow().clone();
 
-        let data_channel = peer_connection.create_data_channel(&session_id.clone().into_inner());
+        let mut init = RtcDataChannelInit::new();
+        init.max_retransmits(max_retransmits);
+        init.ordered(false);
+
+        let data_channel = peer_connection
+            .create_data_channel_with_data_channel_dict(&session_id.to_string(), &init);
         debug!(
             "data_channel created with label: {:?}",
             data_channel.label()
@@ -155,11 +160,7 @@ impl NetworkManager {
             on_message_callback,
         );
 
-        set_peer_connection_on_ice_candidate(
-            &peer_connection,
-            websocket.clone(),
-            session_id.clone(),
-        );
+        set_peer_connection_on_ice_candidate(&peer_connection, websocket.clone(), session_id);
         set_peer_connection_on_ice_connection_state_change(&peer_connection);
         set_peer_connection_on_ice_gathering_state_change(&peer_connection);
         set_peer_connection_on_negotiation_needed(&peer_connection);
@@ -169,30 +170,24 @@ impl NetworkManager {
         Ok(())
     }
 
-    fn datachannel(&self) -> Result<RtcDataChannel, JsValue> {
-        Ok(self
-            .inner
-            .borrow()
-            .data_channel
-            .as_ref()
-            .ok_or_else(|| JsValue::from_str("no data channel set on instance yet"))?
-            .clone())
+    fn datachannel(&self) -> Ref<'_, Option<RtcDataChannel>> {
+        let data_channel = &*self.inner;
+        let borrowed = data_channel.borrow();
+        Ref::map(borrowed, |t| &t.data_channel)
     }
 
     /// Send message to the other end of the connection.
     /// It might fail if the connection is not yet set up
     /// and thus should only be called after `on_open_callback` triggers.
     /// Otherwise it will result in an error.
-    pub fn send_message(&self, message: &str) -> Result<(), JsValue> {
-        debug!("server will try to send a message: {:?}", &message);
+    pub fn send_message<T: Serialize>(&self, message: &T) {
+        debug!("server will try to send a message");
         // FIXME(tkarwowski): this is an ugly fix to the fact, that if you send empty string as message
         //  webrtc fails with a cryptic "The operation failed for an operation-specific reason"
         //  message
-        self.datachannel()?.send_with_str(&format!("x{}", message))
-    }
-
-    /// Same as [NetworkManager::send_message], but allows to send byte array
-    pub fn send_u8_array(&self, message: &[u8]) -> Result<(), JsValue> {
-        self.datachannel()?.send_with_u8_array(message)
+        let message = rmp_serde::to_vec(message).unwrap();
+        if let Some(channel) = &*self.datachannel() {
+            let _ = channel.send_with_u8_array(&message);
+        }
     }
 }
