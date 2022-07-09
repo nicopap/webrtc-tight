@@ -10,12 +10,10 @@ pub enum ConnectionType {
     /// Within local network
     Local,
     /// Setup with STUN server, WAN capabilities but can fail
-    Stun { urls: String },
-    /// Setup with STUN and TURN servers and fallback to TURN if needed, most stable connection
+    Stun { host: String },
+    /// Setup with STUN and TURN hosts and fallback to TURN if needed, most stable connection
     StunAndTurn {
-        // TODO: are those _multiple_ urls? When they are used, it seems they are only a single value
-        stun_urls: String,
-        turn_urls: String,
+        host: String,
         username: String,
         credential: String,
     },
@@ -25,11 +23,13 @@ impl ConnectionType {
         use ConnectionType::{Local, Stun, StunAndTurn};
         match self {
             Local => RtcPeerConnection::new(),
-            Stun { urls } => {
+            Stun { host } => {
                 let ice_servers = Array::new();
                 let server_entry = Object::new();
 
-                Reflect::set(&server_entry, &"urls".into(), &urls.into())?;
+                // NOTE: it's plural, but also accepts unique string
+                let url = "stun:".to_owned() + host;
+                Reflect::set(&server_entry, &"urls".into(), &url.into())?;
 
                 ice_servers.push(&*server_entry);
 
@@ -39,20 +39,22 @@ impl ConnectionType {
                 RtcPeerConnection::new_with_configuration(&rtc_configuration)
             }
             StunAndTurn {
-                stun_urls,
-                turn_urls,
+                host,
                 username,
                 credential,
             } => {
                 let ice_servers = Array::new();
                 let stun_server_entry = Object::new();
 
-                Reflect::set(&stun_server_entry, &"urls".into(), &stun_urls.into())?;
+                // NOTE: it's plural, but also accepts unique string
+                let url = "stun:".to_owned() + host;
+                Reflect::set(&stun_server_entry, &"urls".into(), &url.into())?;
 
                 ice_servers.push(&*stun_server_entry);
                 let turn_server_entry = Object::new();
 
-                Reflect::set(&turn_server_entry, &"urls".into(), &turn_urls.into())?;
+                let url = "turn:".to_owned() + host;
+                Reflect::set(&turn_server_entry, &"urls".into(), &url.into())?;
                 Reflect::set(&turn_server_entry, &"username".into(), &username.into())?;
                 Reflect::set(&turn_server_entry, &"credential".into(), &credential.into())?;
 

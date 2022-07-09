@@ -23,17 +23,6 @@ pub struct GameInit {
     pub username: String,
     pub credential: String,
 }
-impl GameInit {
-    fn stun_url(&self) -> String {
-        self.signaling_server.clone() + "/stun"
-    }
-    fn turn_url(&self) -> String {
-        self.signaling_server.clone() + "/turn"
-    }
-    fn lobby_url(&self) -> String {
-        self.signaling_server.clone() + "/one-to-one"
-    }
-}
 impl GameQuery {
     pub(crate) fn new(session_id: SessionId, is_host: bool) -> Self {
         GameQuery {
@@ -152,14 +141,16 @@ fn init_game(canvas_node: NodeRef, settings: GameInit) -> FootballersGame {
     context.set_text_align("center");
     context.set_text_baseline("middle");
 
-    let signaling_server_url = settings.lobby_url();
     let connection_type = ConnectionType::StunAndTurn {
-        stun_urls: settings.stun_url(),
-        turn_urls: settings.turn_url(),
+        host: settings.signaling_server.clone(),
         username: settings.username.clone(),
         credential: settings.credential.clone(),
     };
-    let mut game = HostGame::new(settings.session_id, connection_type, &signaling_server_url);
+    let mut game = HostGame::new(
+        settings.session_id,
+        connection_type,
+        &settings.signaling_server,
+    );
     game.init();
     game
 }

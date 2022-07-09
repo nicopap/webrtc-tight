@@ -102,13 +102,14 @@ impl NetworkManager {
     /// Requires an IP address of an signaling server instance,
     /// session id by which it will identify connecting pair of peers and type of connection.
     pub fn new(
-        signaling_server_url: &str,
+        host: &str,
         session_id: SessionId,
         connection_type: ConnectionType,
     ) -> Result<Self, JsValue> {
         let peer_connection = connection_type.create_peer_connection()?;
 
-        let websocket = WebSocket::new(signaling_server_url)?;
+        let url = format!("ws://{host}/one-to-one");
+        let websocket = WebSocket::new(&url)?;
         websocket.set_binary_type(web_sys::BinaryType::Arraybuffer);
 
         Ok(NetworkManager {

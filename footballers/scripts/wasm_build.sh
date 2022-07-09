@@ -77,15 +77,13 @@ if [ $Count -ne 1 ]; then
 fi
 
 mv $OutDir/*.js "$OutDir/main.js"
+cp -r assets/* "$OutDir/"
 
 #
 # Run
 #
 
 if [ "$1" = "--run" ]; then
-	python3 -m http.server --bind $HttpServerAddress --directory "$OutDir" $HttpServerPort &
-	Job=$!
-    Browser=${BROWSER:-chromium}
-	$Browser http://$HttpServerAddress:$HttpServerPort/index.html
-	kill $Job
+  $BROWSER http://$HttpServerAddress:$HttpServerPort/
+	python3 -m http.server --bind $HttpServerAddress --directory "$OutDir" $HttpServerPort 
 fi
