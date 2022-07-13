@@ -142,7 +142,6 @@ fn init_game(canvas_node: NodeRef, settings: GameInit) -> FootballersGame {
     context.set_text_baseline("middle");
 
     let connection_type = ConnectionType::StunAndTurn {
-        host: settings.signaling_server.clone(),
         username: settings.username.clone(),
         credential: settings.credential.clone(),
     };

@@ -65,7 +65,7 @@ use serde::Serialize;
 use std::cell::{Ref, RefCell};
 use std::rc::Rc;
 use wasm_bindgen::JsValue;
-use wasm_peers_protocol::SessionId;
+use wasm_peers_protocol::{SessionId, WS_PORT};
 use web_sys::RtcPeerConnection;
 use web_sys::{RtcDataChannel, RtcDataChannelInit, WebSocket};
 
@@ -102,13 +102,13 @@ impl NetworkManager {
     /// Requires an IP address of an signaling server instance,
     /// session id by which it will identify connecting pair of peers and type of connection.
     pub fn new(
-        host: &str,
+        hostname: &str,
         session_id: SessionId,
         connection_type: ConnectionType,
     ) -> Result<Self, JsValue> {
-        let peer_connection = connection_type.create_peer_connection()?;
+        let peer_connection = connection_type.create_peer_connection(hostname)?;
 
-        let url = format!("ws://{host}/one-to-one");
+        let url = format!("ws://{hostname}:{WS_PORT}/one-to-one");
         let websocket = WebSocket::new(&url)?;
         websocket.set_binary_type(web_sys::BinaryType::Arraybuffer);
 

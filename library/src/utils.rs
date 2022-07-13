@@ -1,6 +1,7 @@
 use js_sys::{Array, Object, Reflect};
 use wasm_bindgen::JsValue;
 use wasm_bindgen_futures::JsFuture;
+use wasm_peers_protocol::{STUN_PORT, TURN_PORT};
 use web_sys::{RtcConfiguration, RtcPeerConnection};
 use web_sys::{RtcSdpType, RtcSessionDescriptionInit};
 
@@ -10,25 +11,27 @@ pub enum ConnectionType {
     /// Within local network
     Local,
     /// Setup with STUN server, WAN capabilities but can fail
-    Stun { host: String },
+    Stun,
     /// Setup with STUN and TURN hosts and fallback to TURN if needed, most stable connection
     StunAndTurn {
-        host: String,
         username: String,
         credential: String,
     },
 }
 impl ConnectionType {
-    pub(crate) fn create_peer_connection(&self) -> Result<RtcPeerConnection, JsValue> {
+    pub(crate) fn create_peer_connection(
+        &self,
+        hostname: &str,
+    ) -> Result<RtcPeerConnection, JsValue> {
         use ConnectionType::{Local, Stun, StunAndTurn};
         match self {
             Local => RtcPeerConnection::new(),
-            Stun { host } => {
+            Stun => {
                 let ice_servers = Array::new();
                 let server_entry = Object::new();
 
                 // NOTE: it's plural, but also accepts unique string
-                let url = "stun:".to_owned() + host;
+                let url = format!("stun:{hostname}:{STUN_PORT}");
                 Reflect::set(&server_entry, &"urls".into(), &url.into())?;
 
                 ice_servers.push(&*server_entry);
@@ -39,7 +42,6 @@ impl ConnectionType {
                 RtcPeerConnection::new_with_configuration(&rtc_configuration)
             }
             StunAndTurn {
-                host,
                 username,
                 credential,
             } => {
@@ -47,13 +49,13 @@ impl ConnectionType {
                 let stun_server_entry = Object::new();
 
                 // NOTE: it's plural, but also accepts unique string
-                let url = "stun:".to_owned() + host;
+                let url = format!("stun:{hostname}:{STUN_PORT}");
                 Reflect::set(&stun_server_entry, &"urls".into(), &url.into())?;
 
                 ice_servers.push(&*stun_server_entry);
                 let turn_server_entry = Object::new();
 
-                let url = "turn:".to_owned() + host;
+                let url = format!("turn:{hostname}:{TURN_PORT}");
                 Reflect::set(&turn_server_entry, &"urls".into(), &url.into())?;
                 Reflect::set(&turn_server_entry, &"username".into(), &username.into())?;
                 Reflect::set(&turn_server_entry, &"credential".into(), &credential.into())?;
@@ -128,7 +130,7 @@ mod test {
     #[wasm_bindgen_test]
     fn test_create_stun_peer_connection_is_successful() {
         let peer_connection = ConnectionType::Local
-            .create_peer_connection()
+            .create_peer_connection("localhost:9090")
             .expect("creating peer connection failed!");
         assert_eq!(
             peer_connection.ice_connection_state(),

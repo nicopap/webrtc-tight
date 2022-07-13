@@ -40,7 +40,6 @@ pub async fn user_connected(ws: WebSocket, connections: Connections, sessions: S
                 .await;
         }
     });
-
     connections.write().await.insert(user_id, tx);
 
     while let Some(result) = user_ws_rx.next().await {
@@ -51,10 +50,8 @@ pub async fn user_connected(ws: WebSocket, connections: Connections, sessions: S
                 break;
             }
         };
-
         user_message(user_id, msg, &connections, &sessions).await;
     }
-
     eprintln!("user disconnected: {:?}", user_id);
     user_disconnected(user_id, &connections, &sessions).await;
 }

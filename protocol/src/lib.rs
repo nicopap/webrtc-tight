@@ -11,6 +11,49 @@ use std::{
 
 pub mod one_to_one;
 
+/// Port used for the websocket signaling channel of the WebRTC connection.
+///
+/// The client will keep a connection to the server to communicate protocol-level
+/// changes to its state. WebRTC is not really peer-to-peer, it requires a constant
+/// connection to a third party server.
+///
+/// The constant connection is maintained through a websocket. This is the port used
+/// for the websocket connection.
+///
+/// See MDN https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Protocols
+pub const WS_PORT: u16 = 9003;
+
+/// STUN is a server protocol to find your publicly visible IP address, it is part of
+/// the WebRTC protocol.
+///
+/// This crate embeds a STUN server, so that you do not have any external depdendencies
+/// Most online WebRTC demo depends on google's or random third party STUN server,
+/// exposing your player's IP address to those nice people :), this protocol implementation
+/// includes a STUN server for the security of your users and your personal GDPR compliance.
+///
+/// See MDN https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Protocols
+pub const STUN_PORT: u16 = 9004;
+
+/// TURN is an last-resort connection options going through your own server in case the peers
+/// cannot connect to each other.
+///
+/// Some ISPs NAT implementation prevent direct incoming connections. If both peers are behind
+/// such NATs, it means they literally will never be able to initiate a connection between the
+/// two. So a fallback is necessary in such situations.
+///
+/// It is not computationally expensive, but all network traffic between the "peers" will go
+/// through your own server, it is likely to massively increase your server's bandwidth usage,
+/// upping your network bill.
+///
+/// It also defeats the main benefit of P2P for games: lower latency. Since this means all
+/// the data will have to bounce through the TURN server.
+///
+/// TURN is a feature flag that can be removed through your Cargo.toml, if you do not wish
+/// to provide a TURN server for your clients. (TODO: currently not)
+///
+/// See MDN https://developer.mozilla.org/en-US/docs/Web/API/WebRTC_API/Protocols
+pub const TURN_PORT: u16 = 9004;
+
 /// Unique identifier of signaling session that each user provides
 /// when communicating with the signaling server.
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize, Hash)]
